@@ -1,3 +1,160 @@
+# EventBot: Crea tu evento con un mensaje
+
+## Estructura del proyecto:
+# eventbot/
+# ├── bot.py
+# ├── calendar_api.py
+# ├── message_handler.py
+# ├── nlp.py
+# ├── requirements.txt
+# └── .env
+
+# Instrucciones detalladas al final del archivo.
+
+# ============================================
+# 1. bot.py - Controlador principal
+# ============================================
+
+from flask import Flask, request
+from message_handler import handle_message
+
+app = Flask(__name__)
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    data = request.get_json()
+    message = data['message']['text']
+    chat_id = data['message']['chat']['id']
+    response = handle_message(message, chat_id)
+    return {"status": "ok", "response": response}
+
+if __name__ == '__main__':
+    app.run(debug=True)
+
+# ============================================
+# 2. calendar_api.py - Google Calendar control
+# ============================================
+
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+import datetime
+import os
+
+SCOPES = ['https://www.googleapis.com/auth/calendar']
+SERVICE_ACCOUNT_FILE = 'credentials.json'  # Descárgalo desde Google Cloud
+
+credentials = service_account.Credentials.from_service_account_file(
+    SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+
+service = build('calendar', 'v3', credentials=credentials)
+
+
+def is_time_available(start_datetime, end_datetime):
+    events_result = service.events().list(
+        calendarId='primary',
+        timeMin=start_datetime.isoformat() + 'Z',
+        timeMax=end_datetime.isoformat() + 'Z',
+        singleEvents=True,
+        orderBy='startTime'
+    ).execute()
+
+    return len(events_result.get('items', [])) == 0
+
+
+def create_event(title, description, start_datetime, end_datetime):
+    event = {
+        'summary': title,
+        'description': description,
+        'start': {'dateTime': start_datetime.isoformat(), 'timeZone': 'America/Bogota'},
+        'end': {'dateTime': end_datetime.isoformat(), 'timeZone': 'America/Bogota'},
+    }
+    event = service.events().insert(calendarId='primary', body=event).execute()
+    return event.get('htmlLink')
+
+# ============================================
+# 3. message_handler.py - Lógica de mensajes
+# ============================================
+
+from nlp import extract_event_details
+from calendar_api import create_event, is_time_available
+import datetime
+
+def handle_message(message, chat_id):
+    details = extract_event_details(message)
+    if not details['title'] or not details['datetime']:
+        return "Faltan datos del evento. Por favor incluye el título y la fecha/hora."
+
+    start_time = details['datetime']
+    end_time = start_time + datetime.timedelta(hours=1)
+
+    if not is_time_available(start_time, end_time):
+        return "Ya tienes un evento en ese horario. Por favor elige otro."
+
+    link = create_event(details['title'], details['description'], start_time, end_time)
+    return f"Evento creado exitosamente: {link}"
+
+# ============================================
+# 4. nlp.py - Procesamiento de lenguaje
+# ============================================
+
+import re
+from datetime import datetime
+from dateutil import parser
+
+def extract_event_details(message):
+    # Búsqueda básica con expresiones regulares y parser
+    title_match = re.search(r'(?:evento|reuni[oó]n)[:\-]?\s*(.*?)(?:\n|$)', message, re.IGNORECASE)
+    datetime_match = re.search(r'\b(\d{1,2} de \w+ a las \d{1,2}(?::\d{2})?(?:\s*(?:am|pm))?)\b', message, re.IGNORECASE)
+
+    title = title_match.group(1).strip() if title_match else None
+    date_str = datetime_match.group(1) if datetime_match else None
+    dt = parser.parse(date_str, fuzzy=True, dayfirst=True) if date_str else None
+
+    return {
+        'title': title,
+        'description': message,
+        'datetime': dt
+    }
+
+# ============================================
+# 5. requirements.txt
+# ============================================
+# Flask
+# google-api-python-client
+# google-auth
+# google-auth-oauthlib
+# python-dateutil
+
+# ============================================
+# 6. Instrucciones para ejecutar
+# ============================================
+
+# Paso 1: Clona el proyecto y entra al directorio
+# git clone <url_del_repositorio>
+# cd eventbot
+
+# Paso 2: Crea entorno virtual e instala dependencias
+# python3 -m venv venv
+# source venv/bin/activate
+# pip install -r requirements.txt
+
+# Paso 3: Coloca tus credenciales de Google Calendar
+# - Ve a Google Cloud Console > APIs & Services > Credentials
+# - Crea una cuenta de servicio y descarga el archivo JSON
+# - Renómbralo como 'credentials.json' y colócalo en la raíz del proyecto
+
+# Paso 4: Corre el bot
+# python bot.py
+
+# Paso 5: Conecta con Telegram
+# - Crea un bot en BotFather y obtén el token
+# - Usa ngrok para exponer tu webhook (ngrok http 5000)
+# - En BotFather configura el webhook a la URL que te da ngrok
+# Ej: https://xxxxx.ngrok.io/webhook
+
+# Paso 6: ¡Envía mensajes y empieza a crear eventos!
+
+# Puedes mejorar usando Dialogflow o GPT-4 para NLP más avanzado.
 git clone https://github.com/Mateoospino/Mybot1.git
 cd Mybot1
 python3 -m venv venv
